@@ -1,0 +1,22 @@
+# Taxas e valores configuráveis — edite aqui, nunca no código
+impostos: 0.13        # 13% sobre V.NF
+comissao: 0.04        # 4% sobre V.LIQUIDO
+
+mercado_livre_flex:
+  taxa_fixa: 14.90    # R$ por pedido Flex
+
+amazon:
+  taxa_comissao: 0.13 # fallback quando sem Financial Events
+
+magalu:
+  taxa_comissao: 0.18
+  taxa_fixa: 6.00
+
+leroy_merlin:
+  taxa_comissao: 0.18
+
+madeira_madeira:
+  taxa_comissao: 0.176
+
+devolucao:
+  taxa_avaria: 0.10   # 10% do custo produto
