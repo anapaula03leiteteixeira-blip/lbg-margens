@@ -2,318 +2,220 @@
 > **FONTE DE VERDADE ÚNICA.** Leia este arquivo antes de qualquer implementação.
 > Qualquer mudança de regra deve ser registrada aqui ANTES de mexer no código.
 >
-> Versão: 1.2 — 2026-05-12
-> Localização do projeto: `C:\Users\DELL\Desktop\Sistema - LBG\`
-> Código de referência (arquivo, não usar sem permissão): `C:\Users\DELL\margem-multicanal\`
+> Versão: 2.0 — 2026-05-13
 
 ---
 
 ## 1. VISÃO GERAL
 
-**O que é:** Pipeline automático que coleta pedidos de todos os canais de venda da La Bella Griffe, consolida em um banco de dados único (BANCO DE DADOS MASTER) e calcula a margem real por pedido × SKU.
-
-**Por que existe:** Hoje o processo é manual — a equipe consolida dados de ~10 plataformas. O sistema elimina esse trabalho manual.
+Pipeline automático que coleta pedidos de todos os canais de venda, consolida em banco único e calcula margem real por pedido × SKU.
 
 **Tecnologia:**
-- Linguagem: Python
-- Banco de dados: **Supabase** (PostgreSQL gratuito na nuvem) — dados acessíveis de qualquer lugar
-- Dashboard web: **Streamlit Community Cloud** (gratuito) — sistema online que funcionários acessam via link
-- Credenciais: arquivo `.env` na raiz do projeto (nunca no código)
+- Python (pipeline local)
+- Supabase — PostgreSQL gratuito na nuvem (banco de dados)
+- Streamlit Community Cloud — dashboard web gratuito
 
-**Fluxo de dados:**
+**Fluxo:**
 ```
-Pipeline Python (local) → Supabase (banco online) → Streamlit (sistema web)
-                                                          ↓
-                                               Funcionários via navegador
+rodar.py (local) → Supabase → Streamlit Cloud (dashboard)
+                                    ↓
+                          Funcionários via navegador
 ```
 
-**Custos:** R$ 0. Supabase free tier + Streamlit Community Cloud são permanentemente gratuitos.
+**Dashboard online:** `https://lbg-margens-2yy5prbjq2e4zl4vobwysy.streamlit.app`
+**Senha:** `labg2026`
 
-**Permissões:** SOMENTE LEITURA em todos os ERPs e marketplaces. O sistema NUNCA escreve, cancela ou altera pedidos nas plataformas.
+**Regra absoluta:** SOMENTE LEITURA em todas as APIs. O sistema nunca escreve, cancela ou altera pedidos.
 
 ---
 
 ## 2. ARQUITETURA MODULAR — REGRA DE OURO
 
-> **Cada plataforma é um módulo independente.** Mudar o Shopee não afeta o Mercado Livre. Mudar o Mercado Livre não afeta o Amazon. O pipeline central não sabe como cada conector funciona — só recebe o resultado.
-
-### Estrutura de pastas
+Cada plataforma é um arquivo independente em `src/platforms/`. Mudar ML não afeta Amazon. Mudar Amazon não afeta Leroy.
 
 ```
-C:\Users\DELL\Desktop\Sistema - LBG\
-  PRD.md                        ← este arquivo (fonte de verdade)
-  .env                          ← credenciais (nunca versionar)
-  .env.example                  ← template de variáveis sem valores
-  config/
-    taxas.yaml                  ← todos os percentuais e valores configuráveis
-  src/
-    platforms/
-      mercado_livre.py          ← conector ML (primeira entrega)
-      shopee.py                 ← conector Shopee
-      amazon.py                 ← conector Amazon
-      leroy_merlin.py           ← conector Leroy Merlin
-      magalu.py                 ← conector Magazine Luiza
-      madeira_madeira.py        ← conector MadeiraMadeira
-      nuvemshop.py              ← conector Nuvemshop (site próprio)
-    erp/
-      olist.py                  ← conector Tiny/Olist ERP
-    pipeline.py                 ← orquestrador central (não muda)
-    calculator.py               ← cálculos de margem (não muda)
-    custos.py                   ← leitura da planilha de custos (não muda)
-    database.py                 ← gravação no Supabase (PostgreSQL)
-  app/
-    main.py                     ← dashboard Streamlit (sistema web)
-  tests/
-    test_mercado_livre.py
-    test_calculator.py
-    test_pipeline.py
+src/
+  erp/
+    olist.py              ← conector Tiny/Olist (✅ funcionando)
+  platforms/
+    mercado_livre.py      ← conector ML (✅ funcionando)
+    amazon.py             ← pendente
+    leroy_merlin.py       ← pendente
+    nuvemshop.py          ← pendente
+    shopee.py             ← pendente (aguarda credenciais)
+    magalu.py             ← pendente (fallback)
+    madeira_madeira.py    ← pendente (aguarda token)
+  pipeline.py             ← orquestrador (não modificar)
+  calculator.py           ← fórmulas de margem (não modificar)
+  custos.py               ← lê data/custos.json (não modificar)
+  detector_plataforma.py  ← detecta plataforma pelo pedido Tiny
+  database.py             ← grava no Supabase
+config/
+  taxas.yaml              ← percentuais e taxas configuráveis
+data/
+  custos.json             ← custo e embalagem por SKU (277 SKUs)
+app/
+  main.py                 ← dashboard Streamlit
+rodar.py                  ← script de execução manual
+migrar_sqlite_supabase.py ← migração única (já executada)
 ```
 
-### Contrato de cada conector de plataforma
-
-Todo conector em `src/platforms/` deve implementar a mesma interface:
-
-```
-Entrada:  número do pedido (string)
-Saída:    valor líquido em R$ (float) OU None se não disponível
-```
-
-O pipeline central chama qualquer conector da mesma forma. Se a API de uma plataforma mudar, só o arquivo dessa plataforma é alterado — o restante não sabe que aconteceu nada.
-
-### Regra de mudança segura
-
-```
+**Regra de mudança segura:**
 1. Identificar qual arquivo precisa mudar
-2. Rodar testes desse módulo antes de mexer
+2. Rodar testes do módulo antes de mexer
 3. Fazer a mudança
-4. Rodar testes do módulo + testes do pipeline
-5. Só commitar se tudo passar
-6. NUNCA alterar dois módulos ao mesmo tempo
+4. Rodar testes do módulo + pipeline
+5. Nunca alterar dois módulos ao mesmo tempo
+
+---
+
+## 3. CONECTOR ERP — OLIST (✅ FUNCIONANDO)
+
+**API:** `https://api.tiny.com.br/api2`
+**Credencial:** `TINY_API_TOKEN` no `.env`
+
+### Rate limit
+- Intervalo entre requisições: `1.0s`
+- Se receber erro "Bloqueada": aguarda `65s` e retenta (máx. 5 tentativas)
+
+### Como buscar pedidos (`buscar_pedidos`)
+Pesquisa as **3 situações** para não perder pedidos em trânsito, deduplicando por `id_erp`:
+```
+Faturado → Enviado → Entregue
+```
+Endpoint: `pedidos.pesquisa.php` com `dataInicial`, `dataFinal`, `situacao`, `pagina`
+
+### Como buscar detalhe (`buscar_detalhe_pedido`)
+Endpoint: `pedido.obter.php` com `id`
+
+**Atenção crítica:** o campo `ecommerce` na resposta do detalhe é um **dict**, não string:
+```python
+ecommerce_raw = pedido.get('ecommerce', '')
+if isinstance(ecommerce_raw, dict):
+    ecommerce = ecommerce_raw.get('nomeEcommerce', '')
+else:
+    ecommerce = str(ecommerce_raw or '')
 ```
 
+**Chave de cruzamento:** `numero_ecommerce` do Tiny = número do pedido na plataforma (ex: ID do pedido no ML)
+
+### Como buscar NF (`buscar_nota_fiscal`)
+Endpoint: `nota.fiscal.obter.php` com `id`
+Retorna `valores_por_sku` — valor unitário real da nota por SKU (usado como V.NF)
+
 ---
 
-## 3. FONTE PRINCIPAL DE DADOS — ERP
+## 4. CONECTOR MERCADO LIVRE (✅ FUNCIONANDO)
 
-**ERP utilizado:** Olist (antigo Tiny ERP — mesma API)
+**Credenciais no `.env`:** `ML_APP_ID`, `ML_CLIENT_SECRET`, `ML_ACCESS_TOKEN`, `ML_REFRESH_TOKEN`, `ML_SELLER_ID`
 
-**Relatório de origem:** Controle de Margem
-- Caminho: INÍCIO → VENDAS → RELATÓRIOS → PERSONALIZADOS → CONTROLE DE MARGEM
-- Selecionar período desejado
+### Renovação automática de token
+Token expira periodicamente. A cada requisição com status 401, o sistema renova automaticamente via `refresh_token` e atualiza o `.env`.
 
-**Campos extraídos do ERP:**
+### Fluxo para obter V.LIQUIDO (`obter_vliquido`)
 
-| Campo no ERP | Campo no Master | Observação |
+**Passo 1 — Resolver IDs:**
+O `numero_ecommerce` do Tiny pode ser um `pack_id` (pedido com múltiplos itens) ou um `order_id` direto.
+```
+GET /packs/{num_pedido}
+  → se retornar orders → lista de order_ids
+  → se falhar → usar num_pedido como order_id direto
+```
+
+**Passo 2 — Detectar tipo:**
+```
+order.shipping.logistic_type == 'self_service' → Flex
+order.shipping.logistic_type == 'fulfillment'  → Full
+caso contrário                                 → Padrão
+```
+
+**Passo 3 — Calcular V.LIQUIDO:**
+```
+Flex:          total_amount − R$14,90 (taxa_fixa configurável em taxas.yaml)
+Full/Padrão:   net_received_amount via GET /collections/search?order_id={id}
+```
+
+**Plataformas geradas:**
+| Tipo | plataforma | canal |
 |---|---|---|
-| Data da Venda | DATA_VENDA | |
-| ID ERP | ID_ERP | |
-| N. NF | NUM_NF | |
-| Número do pedido no e-commerce | NUM_PEDIDO_ECOMMERCE | Chave de cruzamento com plataformas |
-| Nome do cliente | CLIENTE | |
-| Código (SKU) | SKU | Cada SKU = uma linha |
-| Preço total | V_BRUTO | |
-| Quantidade de produtos | QUANTIDADE | |
-| E-commerce | ECOMMERCE | Nome da plataforma conforme ERP |
-| Total Produtos | V_NF | |
-| Data de Emissão | DATA_EMISSAO | |
-| UF | UF | |
-| Situação da venda | SITUACAO | |
-
-> **Regra:** Cada SKU de um pedido = uma linha separada no banco. Um pedido com 3 SKUs diferentes = 3 linhas.
+| flex | Mercado Livre Flex | E-commerce |
+| full | Mercado Livre Full | E-commerce |
+| padrao | Mercado Livre | E-commerce |
 
 ---
 
-## 4. CANAIS E PLATAFORMAS
+## 5. DETECÇÃO DE PLATAFORMA (`detector_plataforma.py`)
 
-| PLATAFORMA | CANAL | Como detectar |
+Baseada no campo `ecommerce` do Tiny (texto) e `forma_pagamento`:
+
+| Condição | plataforma | canal |
 |---|---|---|
-| LBG | PISCINAS | Tag "piscinas" no ERP |
-| LBG | CONSTRUTORA | Tag "construtor" no ERP |
-| Nuvemshop | SITE | Cross-reference com API Nuvemshop |
-| Mercado Livre | E-COMMERCE | Campo ecommerce = ML, entrega padrão |
-| Mercado Livre Full | E-COMMERCE | Estoque no galpão ML |
-| Mercado Livre Flex | E-COMMERCE | Campo "Forma de entrega" = "Mercado Envios Flex" |
-| Shopee | E-COMMERCE | Campo ecommerce = Shopee |
-| Shopee Flex | E-COMMERCE | A confirmar como diferenciar |
-| Amazon | E-COMMERCE | Campo ecommerce = Amazon |
-| Amazon Flex | E-COMMERCE | A confirmar como diferenciar |
-| Leroy Merlin | E-COMMERCE | Campo ecommerce = Leroy |
-| Magazine Luiza | E-COMMERCE | Campo ecommerce = Magalu |
-| Magazine Luiza Flex | E-COMMERCE | A confirmar como diferenciar |
-| LBG | REVENDA | Pix/Boleto + CNPJ, sem tag específica |
-| Madeira Madeira | E-COMMERCE | Campo ecommerce = MadeiraMadeira |
+| ecommerce contém "mercado livre" | Mercado Livre | E-commerce |
+| ecommerce contém "shopee" | Shopee | E-commerce |
+| ecommerce contém "amazon" | Amazon | E-commerce |
+| ecommerce contém "leroy" | Leroy Merlin | E-commerce |
+| ecommerce contém "magalu" ou "magazine" | Magalu | E-commerce |
+| ecommerce contém "madeira" | MadeiraMadeira | E-commerce |
+| Pix/Boleto + marcador "piscinas" | LBG | Piscinas |
+| Pix/Boleto + marcador "construtor" | LBG | Construtor |
+| Pix/Boleto sem marcador | LBG | Revenda |
+
+**Nota:** Nuvemshop (site próprio) ainda é detectado como LBG/Revenda — conector pendente.
 
 ---
 
-## 5. ESTRUTURA DO BANCO DE DADOS MASTER
+## 6. BANCO DE DADOS — SUPABASE
 
-### Sistema web (Streamlit) — Telas esperadas
+**Projeto:** `cbjthcuqstpoogooetpe.supabase.co`
+**Credenciais no `.env`:** `SUPABASE_URL`, `SUPABASE_KEY`
 
-| Tela | Conteúdo | Quem usa |
-|---|---|---|
-| Margem | Pedidos com filtro por mês/plataforma/canal, margem calculada | Todos |
-| Devoluções | Pedidos devolvidos, campo para marcar condição (editar) | Equipe operacional |
-| Custos | Custo por SKU, campo para atualizar manualmente | Gestão |
-| Histórico | Consulta de meses anteriores | Gestão |
+**Upsert:** `ON CONFLICT(id_erp, sku)` — reprocessar o mesmo pedido nunca cria duplicata.
 
----
-
-### Tabela principal: `pedidos`
-
-| Coluna | Tipo | Fonte | Observação |
-|---|---|---|---|
-| id | PK auto | Sistema | |
-| data_venda | DATE | ERP | |
-| id_erp | TEXT | ERP | |
-| num_nf | TEXT | ERP | |
-| num_pedido_ecommerce | TEXT | ERP | Chave de cruzamento |
-| cliente | TEXT | ERP | |
-| sku | TEXT | ERP | |
-| v_bruto | DECIMAL | ERP | |
-| quantidade | INTEGER | ERP | |
-| ecommerce | TEXT | ERP | |
-| v_nf | DECIMAL | ERP | |
-| data_emissao | DATE | ERP | |
-| uf | TEXT | ERP | |
-| situacao | TEXT | ERP | |
-| v_liquido | DECIMAL | Conector plataforma | NULL se não disponível |
-| plataforma | TEXT | Detectado | |
-| canal | TEXT | Detectado | |
-| impostos | DECIMAL | Calculado | 13% × V_NF |
-| comissao | DECIMAL | Calculado | 4% × V_LIQUIDO |
-| embalagem | DECIMAL | Tabela custos | |
-| custo_produto | DECIMAL | Tabela custos | |
-| margem_rs | DECIMAL | Calculado | Ver fórmula |
-| margem_pct | DECIMAL | Calculado | Ver fórmula |
-| devolucao | BOOLEAN | Detectado | |
-| data_retorno | DATE | Plataforma | NULL se sem devolução |
-| condicao_devolucao | TEXT | Manual | 'COM AVARIAS' / 'SEM AVARIAS' |
-| custo_devolucao | DECIMAL | Calculado | Ver fórmula |
-| status | TEXT | Sistema | 'ATIVO', 'CANCELADO', 'DEVOLVIDO' |
-| criado_em | TIMESTAMP | Sistema | |
-| atualizado_em | TIMESTAMP | Sistema | |
+**`database.py` — modo dual:**
+- Se `SUPABASE_URL` e `SUPABASE_KEY` estiverem no `.env` → usa Supabase
+- Se não → usa SQLite local `lbg.db` (apenas para desenvolvimento offline)
 
 ---
 
-## 6. FÓRMULAS DE CÁLCULO
+## 7. FÓRMULAS DE CÁLCULO
 
 ```
 IMPOSTOS     = V_NF × 13%
 COMISSAO     = V_LIQUIDO × 4%
-EMBALAGEM    = buscar_embalagem(SKU) × QUANTIDADE
-CUSTO_PROD   = buscar_custo(SKU) × QUANTIDADE
+EMBALAGEM    = buscar_embalagem(SKU) × quantidade
+CUSTO_PROD   = buscar_custo(SKU) × quantidade
 MARGEM_RS    = V_LIQUIDO − IMPOSTOS − COMISSAO − EMBALAGEM − CUSTO_PROD
 MARGEM_PCT   = MARGEM_RS / CUSTO_PROD
 ```
 
-> **Regra MARGEM %:** Denominador é CUSTO DO PRODUTO (retorno sobre custo).
-> **Regra COMISSÃO:** 4% de V.LIQUIDO (não de V.BRUTO).
-
-### Devolução com avarias
-```
-CUSTO_DEVOLUCAO = CUSTO_PROD + IMPOSTOS + (CUSTO_PROD × 10%)
-```
-
-### Devolução sem avarias
-```
-CUSTO_DEVOLUCAO = CUSTO_PROD × 10%
-```
-
----
-
-## 7. REGRAS DE V.LIQUIDO POR PLATAFORMA
-
-> V.LIQUIDO = valor que a empresa efetivamente recebe após taxas e comissões do marketplace.
-
-### Mercado Livre ✅ API disponível
-- **Mercado Livre Flex:** `V_LIQUIDO = Total (BRL) − TAXA_FIXA_ML_FLEX`
-  - Taxa padrão: R$ 14,90 (configurável em `config/taxas.yaml`)
-- **Mercado Livre padrão / Full:** `V_LIQUIDO = Total (BRL)` via campo `net_received_amount`
-- **Cruzamento:** `NUM_PEDIDO_ECOMMERCE` no ERP = número do pedido ML
-  - Atenção: ERP pode armazenar `pack_id` (pedidos com múltiplos itens) — resolver via endpoint `/packs/{pack_id}` para obter `order_ids`
-- **Relatório manual alternativo:** Minha conta → Vendas → Filtrar período → Exportar
-
-### Amazon ✅ API disponível (SP-API)
-- V.LIQUIDO via Financial Events API: soma `Principal` menos todas as fees (`ItemFeeList`)
-- Inclui: comissão Amazon + frete Amazon DBA
-- Pedidos recentes sem Financial Events (não liquidados): usar fallback → linha destacada
-- **Fallback:** `V_BRUTO × (1 − AMAZON_TAXA_COMISSAO)` — sem dedução de frete
-- Credenciais: `AMAZON_LWA_CLIENT_ID`, `AMAZON_LWA_CLIENT_SECRET`, `AMAZON_REFRESH_TOKEN` no `.env`
-- Marketplace ID Brasil: `A2Q3Y263D00KWC`
-
-### Leroy Merlin ✅ API disponível (Mirakl)
-- **Endpoint correto:** `GET /api/orders?order_ids={NUM_PEDIDO_ECOMMERCE}` (não `/api/orders/{id}`)
-- **Fórmula:** `total_price − total_commission − shipping_price`
-- Campos na resposta: `total_price`, `total_commission`, `shipping_price`
-- Credenciais: `LEROY_API_KEY`, `LEROY_BASE_URL` no `.env`
-- **Fallback:** `V_BRUTO × (1 − LEROY_TAXA_COMISSAO)` → linha destacada
-
-### Nuvemshop (site próprio) ✅ API disponível
-- Pedidos Pix/Boleto sem campo ecommerce no ERP → identificar via cross-reference NS
-- Cross-reference: compara valor total ±R$2 e data ±1 dia com API Nuvemshop
-- `PLATAFORMA = Nuvemshop`, `CANAL = Site`
-- Credenciais: `NUVEMSHOP_ACCESS_TOKEN`, `NUVEMSHOP_USER_ID` no `.env`
-- V.LIQUIDO para site próprio: a confirmar (sem taxa marketplace?)
-
-### Shopee ⏳ Aguardando aprovação de API
-- Perfil Open Platform submetido em 30/04/2026 — aguardando aprovação
-- V.LIQUIDO = em branco até ter credenciais (nunca estimar)
-- Credenciais necessárias: `SHOPEE_PARTNER_ID`, `SHOPEE_PARTNER_KEY`, `SHOPEE_SHOP_ID`, `SHOPEE_ACCESS_TOKEN`
-
-### Magazine Luiza ⚠️ Sem API disponível (por enquanto)
-- **Fallback:** `Subtotal × (1 − 0.18) − R$6,00`
-- Linhas Magalu com V.LIQUIDO estimado devem ser marcadas no banco (`v_liquido_estimado = TRUE`)
-
-### Madeira Madeira ⚠️ Token inválido — necessita novo acesso
-- Token atual sem acesso externo (API interna deles)
-- **Ação necessária:** solicitar token válido ao suporte da Madeira Madeira
-- **Fallback:** `subtotal_itens × (1 − MM_TAXA_COMISSAO)`
-  - subtotal_itens = soma `valor_unitario × qtd` dos itens (sem frete)
-  - `MM_TAXA_COMISSAO = 0.176` (17,6%)
-
-### Vendas diretas LBG (Piscinas, Construtora, Revenda)
-- `V_LIQUIDO = V_BRUTO` (sem taxa de marketplace)
+Quando V.LIQUIDO é `None` (plataforma sem conector): `COMISSAO`, `MARGEM_RS` e `MARGEM_PCT` ficam `None`. `IMPOSTOS`, `EMBALAGEM` e `CUSTO_PROD` são calculados normalmente.
 
 ---
 
 ## 8. PLANILHA DE CUSTOS
 
-> Fonte de verdade para CUSTO PRODUTO e EMBALAGEM por SKU.
-> Esta planilha é separada do banco de dados principal.
+**Google Sheets ID:** `1K-typUs7IATurbFHHI_5BdvnXRRhc2_jHikLSmAGQ3g`
+**Arquivo local:** `data/custos.json` (277 SKUs)
 
-**Localização:** Google Sheets
-**ID da planilha:** `1K-typUs7IATurbFHHI_5BdvnXRRhc2_jHikLSmAGQ3g`
+| Coluna | Campo |
+|---|---|
+| A | SKU |
+| D | Custo unitário (R$) — manual |
+| F | Custo embalagem (R$) — manual |
 
-**Colunas:**
-
-| Col | Campo | Preenchimento |
-|---|---|---|
-| A | SKU | Automático (sistema) |
-| B | Nome do produto | Automático (ERP) |
-| C | Preço de venda | Informativo |
-| D | Custo unitário (R$) | **Manual pela equipe** |
-| E | Custo embalagem (R$) | **Manual pela equipe** |
-| F | Data de atualização | Automático |
-
-**Automações:**
-1. SKU novo detectado no ERP → sistema adiciona linha com custo em branco
-2. Todo dia 28 → snapshot da aba atual gravado como aba `Custos_YYYY-MM`
-3. Início do mês → nova aba com os mesmos valores (para ajuste manual)
+Para sincronizar manualmente: `python src/custos_sync.py`
 
 ---
 
-## 9. ARQUIVO DE CONFIGURAÇÃO — `config/taxas.yaml`
+## 9. CONFIGURAÇÃO DE TAXAS (`config/taxas.yaml`)
 
 ```yaml
-# Impostos e cálculos
 impostos: 0.13           # 13% sobre V.NF
 comissao: 0.04           # 4% sobre V.LIQUIDO
 
-# Mercado Livre
 mercado_livre_flex:
-  taxa_fixa: 14.90       # R$ — taxa fixa por pedido Flex
+  taxa_fixa: 14.90       # R$ por pedido Flex
 
-# Plataformas sem API (fallback)
 amazon:
   taxa_comissao: 0.13    # fallback quando sem Financial Events
 magalu:
@@ -324,101 +226,68 @@ leroy_merlin:
 madeira_madeira:
   taxa_comissao: 0.176
 
-# Devolução
 devolucao:
   taxa_avaria: 0.10      # 10% do custo produto
 ```
 
-> Mudar qualquer taxa: editar só este arquivo. Sem tocar no código.
+**Regra:** mudar taxa = editar só este arquivo, nunca o código.
 
 ---
 
-## 10. AUTOMAÇÕES ESPERADAS
+## 10. STATUS DAS PLATAFORMAS
 
-| Automação | Frequência | Descrição |
+| Plataforma | V.LIQUIDO | Status |
 |---|---|---|
-| Importar novos pedidos | Diária | Puxa ERP + enriquece V.LIQUIDO por plataforma |
-| Detectar devoluções | Diária | Verifica pedidos devolvidos nas plataformas |
-| Sincronizar custos | A cada importação | Recalcula margem do mês atual com custo atualizado |
-| Fechar mês de custos | Dia 28 | Cria snapshot `Custos_YYYY-MM` |
-| Adicionar SKUs novos | Ao detectar | SKU novo no ERP → linha nova na planilha de custos |
+| Mercado Livre (padrão/Full/Flex) | API real | ✅ Funcionando |
+| LBG direto (Piscinas/Construtor/Revenda) | = V.BRUTO | ✅ Funcionando |
+| Amazon | Financial Events API | ⏳ Pendente (Entrega 3) |
+| Leroy Merlin | Mirakl API | ⏳ Pendente (Entrega 3) |
+| Nuvemshop | API + cross-reference | ⏳ Pendente (Entrega 4) |
+| Shopee | API | ⏳ Aguarda aprovação de conta (submetido 30/04/2026) |
+| Magalu | Fallback: `subtotal × 0,82 − R$6,00` | ⏳ Pendente (Entrega 6) |
+| MadeiraMadeira | Fallback: `subtotal × 0,824` | ⏳ Aguarda token válido |
 
 ---
 
-## 11. ORDEM DE IMPLEMENTAÇÃO (entregas modulares)
+## 11. PRÓXIMAS ENTREGAS
 
 ```
-Entrega 1 — Fundação
-  ├── Banco de dados (estrutura da tabela)
-  ├── Conector ERP Olist (buscar pedidos)
-  └── Calculator (fórmulas de margem)
+Entrega 3 — Amazon + Leroy Merlin
+  ├── src/platforms/amazon.py
+  │     Financial Events API: soma Principal − ItemFeeList
+  │     Fallback: V_BRUTO × (1 − 0,13) quando sem liquidação
+  └── src/platforms/leroy_merlin.py
+        GET /api/orders?order_ids={NUM_PEDIDO_ECOMMERCE}
+        V.LIQUIDO = total_price − total_commission − shipping_price
 
-Entrega 2 — Primeiro conector
-  ├── Conector Mercado Livre (ML padrão + Full + Flex)
-  └── Pipeline funcional para ML
+Entrega 4 — Nuvemshop (site próprio)
+  └── src/platforms/nuvemshop.py
+        Cross-reference: valor ±R$2 e data ±1 dia
+        V.LIQUIDO a confirmar (provavelmente = V.BRUTO)
 
-Entrega 3 — Expansão
-  ├── Conector Amazon
-  └── Conector Leroy Merlin
+Entrega 5 — Shopee e MadeiraMadeira
+  (quando credenciais disponíveis)
 
-Entrega 4 — Site próprio
-  └── Conector Nuvemshop
+Entrega 6 — Magalu fallback
+  └── src/platforms/magalu.py
+        V.LIQUIDO = subtotal × (1 − 0,18) − R$6,00
+        Marcar v_liquido_estimado = True
 
-Entrega 5 — Quando credenciais disponíveis
-  ├── Conector Shopee (aguarda aprovação API)
-  └── Conector MadeiraMadeira (aguarda token)
-
-Entrega 6 — Fallbacks temporários
-  └── Magalu (fallback até ter API)
-
-Entrega 7 — Automação
-  └── Agendamento diário + alertas
+Entrega 7 — Automação diária
+  Agendar rodar.py para executar todo dia automaticamente
 ```
 
 ---
 
-## 12. PERGUNTAS EM ABERTO (preencher antes de implementar cada entrega)
+## 12. PERGUNTAS EM ABERTO
 
 | # | Pergunta | Status |
 |---|---|---|
-| 1 | Banco de dados: SQLite (local) ou PostgreSQL (servidor)? | ✅ **SQLite** |
-| 2 | Nuvemshop: V.LIQUIDO = V.BRUTO ou tem desconto? | ⏳ A confirmar |
-| 3 | Shopee Flex: como diferenciar Shopee padrão vs Flex? | ⏳ A confirmar quando API aprovada |
-| 4 | Amazon Flex: como diferenciar Amazon padrão vs Flex? | ⏳ A confirmar |
-| 5 | Magalu Flex: como diferenciar Magalu padrão vs Flex? | ⏳ A confirmar |
-| 6 | Devoluções: como identificar devoluções em cada plataforma além do ML? | ⏳ A confirmar por plataforma |
-| 7 | Período inicial: o sistema precisa importar histórico? A partir de quando? | ⏳ A confirmar |
-| 8 | Alertas: o sistema deve avisar quando V.LIQUIDO estiver em branco? | ⏳ A confirmar |
+| 1 | Nuvemshop: V.LIQUIDO = V.BRUTO ou tem desconto? | ⏳ Confirmar |
+| 2 | Shopee/Amazon/Magalu Flex: como diferenciar padrão vs Flex? | ⏳ Confirmar quando integrar |
+| 3 | Período histórico: importar dados de meses anteriores? A partir de quando? | ⏳ Confirmar |
+| 4 | Devoluções: como identificar em cada plataforma além do ML? | ⏳ Confirmar por plataforma |
 
 ---
 
-## 13. GLOSSÁRIO
-
-| Termo | Definição |
-|---|---|
-| V.BRUTO | Preço total que o cliente pagou (antes de taxas do marketplace) |
-| V.NF | Valor que consta na nota fiscal emitida |
-| V.LIQUIDO | Valor que a empresa efetivamente recebe após taxas do marketplace |
-| MARGEM R$ | Lucro real em reais: V.LIQUIDO − impostos − comissão − embalagem − custo |
-| MARGEM % | MARGEM R$ ÷ CUSTO DO PRODUTO (retorno sobre custo) |
-| SKU | Código identificador do produto |
-| Pack | Pedido com múltiplos itens no Mercado Livre (tem pack_id próprio) |
-| Flex | Modalidade onde o vendedor faz a entrega (sem galpão do marketplace) |
-| ERP | Sistema de gestão (Olist/Tiny) |
-| V.LIQUIDO estimado | Valor calculado por fórmula (sem API real) — deve ser marcado no banco |
-
----
-
-## 14. REGRAS DO PROCESSO (para sessões futuras com IA)
-
-1. **Este PRD é a fonte de verdade.** Em caso de conflito entre este documento e memória de conversa anterior, este documento prevalece.
-2. **Código de referência** em `C:\Users\DELL\margem-multicanal\` — consultar só se necessário, avisar antes, validar com a usuária se faz sentido usar.
-3. **Nunca implementar sem story** — toda funcionalidade nova tem acceptance criteria definidos antes de codar.
-4. **Mudança de regra = atualizar PRD primeiro** — depois código.
-5. **Módulos independentes** — mudança em plataforma A não afeta plataforma B.
-6. **Rodar testes antes e depois** de qualquer mudança.
-
----
-
-*Última atualização: 2026-05-12*
-*Próximo passo: Responder item 12 (banco de dados SQLite ou PostgreSQL?) e iniciar Entrega 1*
+*Última atualização: 2026-05-13*
