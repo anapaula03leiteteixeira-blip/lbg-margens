@@ -18,6 +18,16 @@ st.set_page_config(
     layout='wide',
 )
 
+# ── Credenciais Supabase ──────────────────────────────────────────────────────
+try:
+    _SUPA_URL = st.secrets.get('SUPABASE_URL', '') or ''
+    _SUPA_KEY = st.secrets.get('SUPABASE_KEY', '') or ''
+except Exception:
+    _SUPA_URL = os.getenv('SUPABASE_URL', '')
+    _SUPA_KEY = os.getenv('SUPABASE_KEY', '')
+
+_USE_SUPABASE = bool(_SUPA_URL and _SUPA_KEY)
+
 # ── Autenticação ─────────────────────────────────────────────────────────────
 def _checar_senha():
     senha_correta = st.secrets.get('DASHBOARD_SENHA', 'labg2026')
@@ -49,10 +59,30 @@ st.markdown("""
 
 @st.cache_data(ttl=60)
 def carregar_dados():
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute('SELECT * FROM pedidos ORDER BY data_venda DESC').fetchall()
-    return pd.DataFrame([dict(r) for r in rows])
+    if _USE_SUPABASE:
+        from supabase import create_client
+        sb = create_client(_SUPA_URL, _SUPA_KEY)
+        rows = []
+        PAGE = 1000
+        offset = 0
+        while True:
+            resp = (
+                sb.table('pedidos')
+                .select('*')
+                .order('data_venda', desc=True)
+                .range(offset, offset + PAGE - 1)
+                .execute()
+            )
+            rows.extend(resp.data)
+            if len(resp.data) < PAGE:
+                break
+            offset += PAGE
+        return pd.DataFrame(rows)
+    else:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute('SELECT * FROM pedidos ORDER BY data_venda DESC').fetchall()
+        return pd.DataFrame([dict(r) for r in rows])
 
 
 def fmt_brl(val):
@@ -168,4 +198,5 @@ df_tabela.columns = [c.replace('_', ' ').upper() for c in df_tabela.columns]
 st.dataframe(df_tabela, use_container_width=True, hide_index=True, height=500)
 
 # ── Rodapé ───────────────────────────────────────────────────────────────────
-st.caption(f'Banco: {DB_PATH} | {len(df_raw)} linhas totais | Atualizado: rode `python rodar.py` para importar novos pedidos')
+fonte = 'Supabase' if _USE_SUPABASE else DB_PATH
+st.caption(f'Banco: {fonte} | {len(df_raw)} linhas totais | Atualizado: rode `python rodar.py` para importar novos pedidos')
