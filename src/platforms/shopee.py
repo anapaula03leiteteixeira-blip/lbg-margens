@@ -167,7 +167,7 @@ def obter_vliquido(num_pedido_ecommerce, taxa_fixa_flex=None, **kwargs):
     if not _PARTNER_ID or not _PARTNER_KEY or not _SHOP_ID:
         return {
             'v_liquido': None, 'plataforma': 'Shopee',
-            'canal': 'E-commerce', 'v_liquido_estimado': False, 'aguardando_escrow': False,
+            'canal': 'E-commerce', 'v_liquido_estimado': False, 'aguardando_escrow': True,
         }
 
     if taxa_fixa_flex is None:
@@ -179,7 +179,7 @@ def obter_vliquido(num_pedido_ecommerce, taxa_fixa_flex=None, **kwargs):
     except Exception:
         return {
             'v_liquido': None, 'plataforma': 'Shopee',
-            'canal': 'E-commerce', 'v_liquido_estimado': False, 'aguardando_escrow': False,
+            'canal': 'E-commerce', 'v_liquido_estimado': False, 'aguardando_escrow': True,
         }
 
     plataforma = _resolver_plataforma(carrier)

@@ -144,6 +144,7 @@ def test_reconciliar_shopee_chama_atualizar_nao_upsert():
     }
 
     with patch('src.pipeline.buscar_shopee_pendentes_recentes', return_value=[PENDENTE_SHOPEE]), \
+         patch('src.pipeline.buscar_shopee_nulos', return_value=[]), \
          patch('src.platforms.shopee.obter_vliquido', return_value=vliq_resultado), \
          patch('src.pipeline.buscar_custo', return_value=40.0), \
          patch('src.pipeline.buscar_embalagem', return_value=3.0), \
@@ -164,12 +165,13 @@ def test_reconciliar_shopee_chama_atualizar_nao_upsert():
 
 
 def test_reconciliar_shopee_sem_pendentes_retorna_zero():
-    with patch('src.pipeline.buscar_shopee_pendentes_recentes', return_value=[]):
+    with patch('src.pipeline.buscar_shopee_pendentes_recentes', return_value=[]), \
+         patch('src.pipeline.buscar_shopee_nulos', return_value=[]):
         assert _reconciliar_shopee_pendentes(TAXAS_COMPLETAS) == 0
 
 
 def test_reconciliar_shopee_aguardando_escrow_nao_atualiza():
-    """Pedido ainda em trânsito (aguardando_escrow=True) não deve ser atualizado."""
+    """Pedido estimado em trânsito (aguardando_escrow=True) não deve ser atualizado."""
     vliq_em_transito = {
         'v_liquido': None,
         'plataforma': 'Shopee',
@@ -179,6 +181,7 @@ def test_reconciliar_shopee_aguardando_escrow_nao_atualiza():
     }
 
     with patch('src.pipeline.buscar_shopee_pendentes_recentes', return_value=[PENDENTE_SHOPEE]), \
+         patch('src.pipeline.buscar_shopee_nulos', return_value=[]), \
          patch('src.platforms.shopee.obter_vliquido', return_value=vliq_em_transito), \
          patch('src.pipeline.atualizar_shopee_reconciliado') as mock_atualizar:
 

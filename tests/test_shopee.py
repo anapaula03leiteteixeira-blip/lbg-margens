@@ -105,4 +105,4 @@ def test_sem_credenciais_retorna_none():
     resultado = obter_vliquido('123')
     shopee._PARTNER_ID = original
     assert resultado['v_liquido'] is None
-    assert resultado['aguardando_escrow'] is False
+    assert resultado['aguardando_escrow'] is True  # sem credenciais → pipeline deve estimar

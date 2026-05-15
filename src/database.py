@@ -181,6 +181,48 @@ def buscar_shopee_pendentes_recentes(dias=45):
     return resultado
 
 
+def buscar_shopee_nulos(dias=60):
+    """
+    Retorna pedidos Shopee com v_liquido NULL e v_liquido_estimado=0.
+    Estes ficaram travados (sem estimativa) por falha de API na inserção original.
+    """
+    campos = 'id_erp,num_pedido_ecommerce,sku,quantidade,v_nf,v_bruto,plataforma,canal,data_venda'
+    filtros = [
+        ('eq',    ('v_liquido_estimado', 0)),
+        ('ilike', ('plataforma', 'Shopee%')),
+    ]
+    rows = _paginar('pedidos', campos, filtros)
+    cutoff = datetime.now() - timedelta(days=dias)
+    resultado = []
+    for r in rows:
+        if r.get('v_liquido') is not None:
+            continue
+        try:
+            dt = datetime.strptime(r['data_venda'], '%d/%m/%Y')
+            if dt >= cutoff:
+                resultado.append(r)
+        except Exception:
+            resultado.append(r)
+    return resultado
+
+
+def atualizar_shopee_estimado(id_erp, sku, v_liquido_est, plataforma, margem):
+    """Grava estimativa de V.LIQUIDO (v_liquido_estimado=1) para pedidos sem valor anterior."""
+    sb = _get_client()
+    campos = {
+        'v_liquido':          v_liquido_est,
+        'v_liquido_estimado': 1,
+        'plataforma':         plataforma,
+        'impostos':           margem['impostos'],
+        'comissao':           margem['comissao'],
+        'embalagem':          margem['embalagem'],
+        'custo_produto':      margem['custo_produto'],
+        'margem_rs':          margem['margem_rs'],
+        'margem_pct':         margem['margem_pct'],
+    }
+    sb.table('pedidos').update(campos).eq('id_erp', id_erp).eq('sku', sku).execute()
+
+
 def buscar_resumo():
     """
     Retorna totais agregados para exibição no terminal após execução do pipeline.

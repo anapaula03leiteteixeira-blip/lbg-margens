@@ -11,7 +11,11 @@ from src.erp.olist import buscar_pedidos, buscar_detalhe_pedido, buscar_nota_fis
 from src.detector_plataforma import detectar
 from src.calculator import calcular_margem
 from src.custos import buscar_custo, buscar_embalagem
-from src.database import criar_tabelas, upsert_pedidos, buscar_ids_por_data, buscar_shopee_pendentes_recentes, atualizar_shopee_reconciliado
+from src.database import (
+    criar_tabelas, upsert_pedidos, buscar_ids_por_data,
+    buscar_shopee_pendentes_recentes, atualizar_shopee_reconciliado,
+    buscar_shopee_nulos, atualizar_shopee_estimado,
+)
 
 _TAXAS_PATH = os.path.join(os.path.dirname(__file__), '..', 'config', 'taxas.yaml')
 
@@ -170,23 +174,36 @@ def processar_pedido(id_erp, taxas):
 
 def _reconciliar_shopee_pendentes(taxas):
     """
-    Verifica pedidos Shopee com estimativa que podem ter fechado (COMPLETED).
-    Substitui estimativa pelo escrow real quando disponível.
+    Verifica pedidos Shopee pendentes em dois grupos:
+    - estimados (v_liquido_estimado=1): substitui pelo escrow real se COMPLETED
+    - travados (v_liquido=null, v_liquido_estimado=0): grava estimativa ou escrow real
     Retorna número de pedidos atualizados.
     """
     from src.platforms.shopee import obter_vliquido as shopee_vliq
 
     pendentes = buscar_shopee_pendentes_recentes(dias=45)
-    if not pendentes:
+    nulos = buscar_shopee_nulos(dias=60)
+
+    # Dedup por (id_erp, sku) — pendentes têm prioridade
+    vistos = {(r['id_erp'], r['sku']): 'pendente' for r in pendentes}
+    nulos_novos = [r for r in nulos if (r['id_erp'], r['sku']) not in vistos]
+    for r in nulos_novos:
+        vistos[(r['id_erp'], r['sku'])] = 'nulo'
+
+    todos = pendentes + nulos_novos
+    if not todos:
         return 0
 
-    print(f'  [Shopee reconciliação] {len(pendentes)} pedidos estimados para verificar...')
+    print(f'  [Shopee reconciliação] {len(pendentes)} estimados, {len(nulos_novos)} travados para verificar...')
     atualizados = 0
     taxa_flex = taxas.get('shopee_flex', {}).get('taxa_fixa', 9.99)
 
-    for p in pendentes:
+    for p in todos:
+        tipo = vistos[(p['id_erp'], p['sku'])]
         resultado = shopee_vliq(p['num_pedido_ecommerce'], taxa_fixa_flex=taxa_flex)
+
         if resultado.get('v_liquido') is not None and not resultado.get('aguardando_escrow'):
+            # Escrow real disponível → reconciliar definitivamente (remove estimativa)
             v_liq = resultado['v_liquido']
             margem = calcular_margem(
                 v_liquido=v_liq,
@@ -205,8 +222,31 @@ def _reconciliar_shopee_pendentes(taxas):
             )
             atualizados += 1
 
+        elif tipo == 'nulo' and resultado.get('aguardando_escrow'):
+            # Pedido em trânsito sem nenhuma estimativa → calcular e gravar
+            v_bruto = p.get('v_bruto') or 0
+            if v_bruto:
+                plataforma = resultado.get('plataforma') or p.get('plataforma', 'Shopee')
+                v_est = _estimar_vliquido_shopee(plataforma, v_bruto, taxas)
+                margem = calcular_margem(
+                    v_liquido=v_est,
+                    v_nf=p.get('v_nf', 0),
+                    custo_unitario=buscar_custo(p['sku']),
+                    custo_embalagem_unitario=buscar_embalagem(p['sku']),
+                    quantidade=p['quantidade'],
+                    taxas=taxas,
+                )
+                atualizar_shopee_estimado(
+                    id_erp=p['id_erp'],
+                    sku=p['sku'],
+                    v_liquido_est=v_est,
+                    plataforma=plataforma,
+                    margem=margem,
+                )
+                atualizados += 1
+
     if atualizados:
-        print(f'  [Shopee reconciliação] {atualizados} pedidos atualizados com valor real.')
+        print(f'  [Shopee reconciliação] {atualizados} pedidos atualizados.')
 
     return atualizados
 
