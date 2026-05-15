@@ -9,14 +9,22 @@ BASE_URL = 'https://api.tiny.com.br/api2'
 TOKEN = os.getenv('TINY_API_TOKEN')
 _INTERVALO_REQUISICAO = 1.0  # segundos entre chamadas (max 60 req/min — margem de segurança)
 _RETRY_ESPERA = 65            # segundos de espera ao ser bloqueado pela API
+_RETRY_ESPERA_REDE = 15       # segundos de espera em queda de conexão
 _MAX_RETRIES = 5
 
 
 def _post(endpoint, params):
     payload = {'token': TOKEN, 'formato': 'JSON', **params}
     for tentativa in range(1, _MAX_RETRIES + 1):
-        response = requests.post(f'{BASE_URL}/{endpoint}', data=payload, timeout=30)
-        response.raise_for_status()
+        try:
+            response = requests.post(f'{BASE_URL}/{endpoint}', data=payload, timeout=30)
+            response.raise_for_status()
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            if tentativa < _MAX_RETRIES:
+                print(f'  [rede] conexão falhou, aguardando {_RETRY_ESPERA_REDE}s ({tentativa}/{_MAX_RETRIES})...')
+                time.sleep(_RETRY_ESPERA_REDE)
+                continue
+            raise
         data = response.json()
         retorno = data.get('retorno', {})
         if retorno.get('status') == 'Erro':
@@ -27,6 +35,8 @@ def _post(endpoint, params):
                     print(f'  [rate limit] aguardando {_RETRY_ESPERA}s antes de tentar novamente ({tentativa}/{_MAX_RETRIES})...')
                     time.sleep(_RETRY_ESPERA)
                     continue
+            if 'retornou registros' in msg or 'retornou registro' in msg:
+                return {'pedidos': [], 'numero_paginas': 0}
             raise ValueError(f'Tiny API erro em {endpoint}: {erros}')
         time.sleep(_INTERVALO_REQUISICAO)
         return retorno

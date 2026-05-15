@@ -1,12 +1,19 @@
 # Taxas e valores configuráveis — edite aqui, nunca no código
+# Taxas marcadas como "editável no dashboard" aparecem no painel de configuração do Streamlit
 impostos: 0.13        # 13% sobre V.NF
 comissao: 0.04        # 4% sobre V.LIQUIDO
 
 mercado_livre_flex:
-  taxa_fixa: 14.90    # R$ por pedido Flex
+  taxa_fixa: 14.99    # R$ por pedido Flex — editável no dashboard
+
+shopee:
+  taxa_comissao: 0.10  # 10% estimativa para pedidos em trânsito — confirmar com Shopee
+
+shopee_flex:
+  taxa_fixa: 9.99     # R$ por pedido Entrega Direta — editável no dashboard
 
 amazon:
-  taxa_comissao: 0.13 # fallback quando sem Financial Events
+  taxa_comissao: 0.13  # fallback quando sem Financial Events
 
 magalu:
   taxa_comissao: 0.18

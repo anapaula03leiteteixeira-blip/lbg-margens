@@ -6,70 +6,94 @@
 ## Contexto do projeto
 
 Sistema de Controle de Margens da La Bella Griffe.
-Projeto novo, limpo, começado do zero em 12/05/2026.
-
 **Pasta do projeto:** `C:\Users\DELL\Desktop\Sistema - LBG\`
 **Fonte de verdade:** `C:\Users\DELL\Desktop\Sistema - LBG\PRD.md`
 **Código antigo (referência, não usar sem avisar):** `C:\Users\DELL\margem-multicanal\`
 
 ---
 
-## O que já foi construído e testado
+## O que foi construído e testado
 
 | Arquivo | O que faz | Testes |
 |---|---|---|
-| `src/calculator.py` | Fórmulas de margem (IMPOSTOS, COMISSÃO, MARGEM R$, MARGEM %) | 9 ✅ |
-| `src/database.py` | Banco SQLite local (`lbg.db`) | ✅ |
+| `src/calculator.py` | Fórmulas de margem | 9 ✅ |
+| `src/database.py` | SQLite + Supabase, com `buscar_shopee_pendentes()` | ✅ |
 | `src/custos.py` | Lê custos por SKU de `data/custos.json` | ✅ |
-| `src/detector_plataforma.py` | Detecta plataforma e canal pelo pedido Tiny | ✅ |
-| `src/erp/olist.py` | Conector API Tiny/Olist — busca pedidos e detalhes | ✅ |
-| `src/platforms/mercado_livre.py` | Conector ML — V.LIQUIDO, FLEX, FULL, renovação de token | 10 ✅ |
-| `src/pipeline.py` | Orquestrador central — une tudo e salva no banco | 9 ✅ |
+| `src/detector_plataforma.py` | Detecta plataforma pelo pedido Tiny | ✅ |
+| `src/erp/olist.py` | Conector API Tiny/Olist | ✅ |
+| `src/controle.py` | Estado incremental (`.controle.json`) — NOVO | ✅ |
+| `src/platforms/mercado_livre.py` | Reescrito: V.LIQUIDO por order_id via `/collections/search` | 12 ✅ |
+| `src/platforms/shopee.py` | Reescrito: COMPLETED→escrow real, trânsito→aguardando_escrow | 12 ✅ |
+| `src/pipeline.py` | Reescrito: incremental + estimativa Shopee + reconciliação | ✅ |
+| `rodar.py` | Atualizado: `--desde`, `--ate`, `--so-reconciliar` | ✅ |
 
-**Total: 28 testes passando.**
-
----
-
-## Regras de negócio confirmadas (do PRD)
-
-- `IMPOSTOS = V_NF × 13%`
-- `COMISSÃO = V_LIQUIDO × 4%`
-- `MARGEM R$ = V_LIQUIDO − IMPOSTOS − COMISSÃO − EMBALAGEM − CUSTO_PRODUTO`
-- `MARGEM % = MARGEM R$ / CUSTO_PRODUTO`
-- ML FLEX: `V_LIQUIDO = total_pedido − R$14,90`
-- ML FULL / Padrão: `V_LIQUIDO = net_received_amount` da API
-- V.BRUTO = `total_pedido` do Tiny distribuído proporcionalmente por SKU
-- V.NF = `valor_unitario` da NF fiscal × quantidade
+**Total: 46 testes passando.**
 
 ---
 
-## Tarefa da próxima sessão
+## Arquitetura atual (resumo)
 
-1. Criar `rodar.py` na raiz do projeto
-2. Executar o pipeline para Mercado Livre no período **01/05/2026 a 12/05/2026**
-3. Verificar que os dados chegaram corretos no banco SQLite
-4. Corrigir qualquer erro que aparecer
-5. Mostrar resumo dos resultados (pedidos, linhas, erros)
-
-**Comando para rodar após criar o arquivo:**
+### Pipeline incremental
 ```
-! python rodar.py
+python rodar.py                              # desde última execução até hoje
+python rodar.py --desde 01/05/2026           # desde data específica
+python rodar.py --desde 01/05/2026 --ate 14/05/2026
+python rodar.py --so-reconciliar             # só reconcilia Shopee pendentes
 ```
 
+### V.LIQUIDO por plataforma
+- **ML Flex**: `total_amount − R$14,99` (sem chamada de collections)
+- **ML Full/Padrão**: `/collections/search?order_id={id}` → `net_received_amount`
+- **Shopee COMPLETED**: `get_escrow_detail` → escrow real
+- **Shopee em trânsito**: estimativa `v_bruto × (1 − 10%)`, badge amarelo no dashboard, reconcilia diariamente
+- **LBG**: = V.BRUTO
+
+### Taxas configuráveis (`config/taxas.yaml`)
+- `mercado_livre_flex.taxa_fixa: 14.99`
+- `shopee_flex.taxa_fixa: 9.99`
+- `shopee.taxa_comissao: 0.10` (confirmar % real com Shopee)
+
 ---
 
-## Credenciais disponíveis
+## Banco de dados atual (lbg.db)
 
-Todas no arquivo `.env` — não precisa pedir nenhuma credencial.
-Plataformas com API pronta: Tiny ERP, Mercado Livre, Amazon, Leroy Merlin, Nuvemshop.
+420 linhas do run anterior com a arquitetura antiga:
+- ML: 162 linhas com V.LIQUIDO real ✅
+- Shopee: 228 linhas com `v_liquido = NULL` (arquitetura antiga, não reprocessar)
+- LBG: 11 linhas ✅
+- Amazon/Leroy/MM: sem V.LIQUIDO (aguardando conector)
+
+**O banco foi mantido** — próxima execução processa pedidos NOVOS desde a última data + reconcilia Shopee.
 
 ---
 
-## Arquitetura modular — regra de ouro
+## Próxima tarefa — TESTAR o novo pipeline
 
-Cada plataforma é um arquivo independente em `src/platforms/`.
-Mudar ML não afeta Amazon. Mudar Amazon não afeta Leroy.
-**Nunca alterar dois módulos ao mesmo tempo.**
+1. Rodar os testes: `python -m pytest tests/ -v` → deve mostrar **46 passed**
+2. Executar pipeline incremental para o período atual:
+   ```
+   python rodar.py --desde 01/05/2026 --ate 14/05/2026
+   ```
+   - Deve ser mais rápido que antes (só novos pedidos)
+   - ML deve ter V.LIQUIDO preenchido para Full/Padrão
+   - Shopee em trânsito deve ter estimativa com badge
+
+3. Se tudo ok: rodar sem datas (modo incremental puro)
+   ```
+   python rodar.py
+   ```
+
+4. Verificar no banco quantos Shopee ficaram com estimativa vs real
+
+---
+
+## Pendente (próximas entregas)
+
+- **Aba ⚙️ Configurações** no dashboard Streamlit (`app/main.py`) — editar taxas_fixa ML e Shopee diretamente na UI
+- **Entrega 4**: Amazon + Leroy Merlin
+- **Entrega 5**: Nuvemshop
+- **Entrega 6**: Magalu + MadeiraMadeira
+- **Entrega 7**: Automação diária
 
 ---
 
@@ -79,4 +103,4 @@ Mudar ML não afeta Amazon. Mudar Amazon não afeta Leroy.
 cd "C:\Users\DELL\Desktop\Sistema - LBG"
 python -m pytest tests/ -v
 ```
-Deve mostrar: `28 passed`
+Deve mostrar: `46 passed`
